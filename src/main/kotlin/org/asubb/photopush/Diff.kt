@@ -101,7 +101,7 @@ class Diff(
                         .filter { it.size == localFile.size && it.hash == localFile.hash }
                         // which has different paths
                         .filter { File(it.path).toRelativeString(remoteBase).toLowerCase() != localFile.ref.toRelativeString(localBase).toLowerCase() }
-                        .map { it.path }
+                        .map { it.path.toLowerCase() }
                         .toList()
 
                 if (possibleMisplaced.isNotEmpty()) {
