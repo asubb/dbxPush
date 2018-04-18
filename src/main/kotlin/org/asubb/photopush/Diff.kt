@@ -29,8 +29,8 @@ data class LocalFile(
 
 class Diff(
         private val localRootPath: String,
-        val remoteRootPath: String,
-        val dbxClient: DbxClientV2
+        private val remoteRootPath: String,
+        private val dbxClient: DbxClientV2
 ) {
 
     private val dbxDataFile = File("dbxFiles.dat")
@@ -43,38 +43,20 @@ class Diff(
         localFiles = readLocalState(localRootPath)
     }
 
-//    fun get() {
-//        checkFileUniqueness(dbxFiles, { File(it.path).toRelativeString(File(remoteRootPath)) })
-//        checkFileUniqueness(localFiles, { it.name })
-
-//    }
-
-//    private fun <T> checkFileUniqueness(fileList: List<T>, getFileName: (T) -> String) {
-//        // TODO handle that situation properly
-//        val groupedByName = fileList.asSequence().groupBy { getFileName(it) }
-//        if (groupedByName.count() != fileList.size) {
-//            groupedByName.asSequence()
-//                    .filter { it.value.size > 1 }
-//                    .flatMap { it.value.asSequence() }
-//                    .forEach { println(it) }
-//            throw UnsupportedOperationException("File names are not unique")
-//        }
-//    }
-//
-
     fun finalize() {
         dbxDataFile.delete()
     }
 
-    fun getStrict(outputQueue: Queue<File>) {
+    fun getStrict(): List<File> {
+        val outputList = ArrayList<File>()
         var found = 0L
         var notFound = 0L
-        val dbxRef = dbxFiles.associate { File(it.path).toRelativeString(remoteBase).toLowerCase() to it }
+        val dbxRef = dbxFiles.associate { File(it.path.toLowerCase()).toRelativeString(remoteBase).toLowerCase() to it }
         localFiles.forEach { localFile ->
             val dbx = dbxRef[localFile.ref.toRelativeString(localBase).toLowerCase()]
             if (dbx == null) {
                 // no file found remotely need to upload it
-                outputQueue += localFile.ref
+                outputList += localFile.ref
                 notFound++
             } else {
                 if (dbx.size != localFile.size || dbx.hash != localFile.hash) {
@@ -88,11 +70,19 @@ class Diff(
             }
         }
         println("Already uploaded: $found, to upload: $notFound")
+        return outputList
     }
 
-    fun findMisplaced(): Map<File, List<String>> {
+    data class FileDesc(
+            val name: String,
+            val size: Long,
+            val hash: String,
+            val ref: File? = null
+    )
+
+    fun findMisplaced(): Map<FileDesc, List<FileDesc>> {
         val dbxRef = dbxFiles.groupBy { it.name }
-        val misplaced = HashMap<File, List<String>>()
+        val misplaced = HashMap<FileDesc, List<FileDesc>>()
         localFiles.forEach { localFile ->
             val dbx = dbxRef[localFile.name]
             if (dbx != null) {
@@ -100,18 +90,33 @@ class Diff(
                         // find identical files
                         .filter { it.size == localFile.size && it.hash == localFile.hash }
                         // which has different paths
-                        .filter { File(it.path).toRelativeString(remoteBase).toLowerCase() != localFile.ref.toRelativeString(localBase).toLowerCase() }
-                        .map { it.path.toLowerCase() }
+                        .filter { !arePathTheSame(it, localFile) }
+                        .map {
+                            println(">>> `${File(it.path).toRelativeString(remoteBase).toLowerCase()}`")
+                            println(">>>> `${localFile.ref.toRelativeString(localBase).toLowerCase()}`")
+                            FileDesc(it.path.toLowerCase(), it.size, it.hash)
+                        }
                         .toList()
 
                 if (possibleMisplaced.isNotEmpty()) {
-                    misplaced.put(localFile.ref, possibleMisplaced)
+                    misplaced[FileDesc(localFile.name, localFile.size, localFile.hash, localFile.ref)] = possibleMisplaced
                 }
             }
         }
         return misplaced
     }
 
+    private fun arePathTheSame(remoteFile: DbxFile, localFile: LocalFile): Boolean {
+        val remoteFileComponents = remoteFile.path.split(File.separatorChar)
+        val remoteBaseComponents = remoteRootPath.split(File.separatorChar)
+        val remoteRelativePath = remoteFileComponents.subList(remoteBaseComponents.size, remoteFileComponents.size).joinToString(separator = File.separator)
+
+        val localFileComponents = localFile.path.split(File.separatorChar)
+        val localBaseComponents = localRootPath.split(File.separatorChar)
+        val localRelativePath = localFileComponents.subList(localBaseComponents.size, localFileComponents.size).joinToString(separator = File.separator)
+
+        return remoteRelativePath.toLowerCase() == localRelativePath.toLowerCase()
+    }
 
     private fun readLocalState(path: String): List<LocalFile> {
         println("Reading local state...")
