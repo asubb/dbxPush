@@ -34,11 +34,7 @@ In order to use that app you need:
 Installation
 ----
 
-1. Download it:
-
-    ```bash
-    curl -oL <PROVIDE THE LINK>
-    ``` 
+1. Download it https://github.com/asubb/dbxPush/releases/download/1.0/dbxpush.zip
 
 2. Unpack it:
 
