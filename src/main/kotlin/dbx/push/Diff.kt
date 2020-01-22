@@ -1,4 +1,4 @@
-package org.asubb.photopush
+package dbx.push
 
 import com.dropbox.DropboxFileHash
 import com.dropbox.core.v2.DbxClientV2
@@ -24,16 +24,18 @@ data class LocalFile(
         val hash: String,
         val size: Long,
         val ref: File
-)
+) : Serializable
 
 
 class Diff(
         private val localRootPath: String,
         private val remoteRootPath: String,
-        private val dbxClient: DbxClientV2
+        private val dbxClient: DbxClientV2,
+        private val skipList: Set<String>
 ) {
 
-    private val dbxDataFile = File("dbxFiles.dat")
+    private val dbxDataFile = File(".dbxFiles")
+    private val localDataFile = File(".localFiles")
     private val remoteBase = File(remoteRootPath)
     private val localBase = File(localRootPath)
     private val dbxFiles = readDropboxState(dbxClient, remoteRootPath)
@@ -45,6 +47,7 @@ class Diff(
 
     fun finalize() {
         dbxDataFile.delete()
+        localDataFile.delete()
     }
 
     fun getStrict(): List<File> {
@@ -94,12 +97,12 @@ class Diff(
                         .map {
                             println(">>> `${File(it.path).toRelativeString(remoteBase).toLowerCase()}`")
                             println(">>>> `${localFile.ref.toRelativeString(localBase).toLowerCase()}`")
-                            FileDesc(it.path.toLowerCase(), it.size, it.hash)
+                            Diff.FileDesc(it.path.toLowerCase(), it.size, it.hash)
                         }
                         .toList()
 
                 if (possibleMisplaced.isNotEmpty()) {
-                    misplaced[FileDesc(localFile.name, localFile.size, localFile.hash, localFile.ref)] = possibleMisplaced
+                    misplaced[Diff.FileDesc(localFile.name, localFile.size, localFile.hash, localFile.ref)] = possibleMisplaced
                 }
             }
         }
@@ -121,7 +124,27 @@ class Diff(
     private fun readLocalState(path: String): List<LocalFile> {
         println("Reading local state...")
         val localFiles = ArrayList<LocalFile>()
-        listAllFilesInDirectory(path, localFiles)
+
+        if (!localDataFile.exists()) {
+            listAllFilesInDirectory(path, localFiles)
+            ObjectOutputStream(FileOutputStream(localDataFile)).use { oos ->
+                localFiles.forEach {
+                    oos.writeObject(it)
+                }
+            }
+        } else {
+            println("Used local cache.")
+            ObjectInputStream(FileInputStream(localDataFile)).use { ois ->
+                try {
+                    do {
+                        val element = ois.readObject() as LocalFile
+                        localFiles += element
+                    } while (true)
+                } catch (e: EOFException) {
+                    // end of stream, simply finish reading.
+                }
+            }
+        }
         val o = localFiles.filter { it.name !in skipList }
         println("Found ${o.size} files to sync up")
         return o

@@ -24,3 +24,13 @@ hs_err_pid*
 # IDEA files
 .idea
 *.iml
+
+.DS_Store
+build/
+out/
+.gradle
+
+# application files
+.dbxFiles
+.localFiles
+dbxpush.properties
