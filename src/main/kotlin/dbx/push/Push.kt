@@ -8,8 +8,6 @@ import java.io.PrintWriter
 import java.util.*
 import kotlin.system.exitProcess
 
-const val defaultThreadsCount = 15
-
 val t = Option("t", "access-token", true, "Token to access DropBox API")
 val c = Option("c", "client-identifier", true, "Client Identifier to access DropBox API")
 val l = Option(
@@ -18,21 +16,27 @@ val l = Option(
     true,
     "Path to folder on local machine to make comparison against, i.e. /users/me/Pictures"
 )
-val r = Option("r", "remote-path", true, "Path to folder inside DropBox to make comparison against, i.e. /photos")
+val r = Option(
+    "r",
+    "remote-path",
+    true,
+    "Path to folder inside DropBox to make comparison against, i.e. /photos"
+)
 val s = Option("s", "skip-list", true, "Comma-separate list of files to be skipped")
 val a = Option(
     "a",
     "action",
     true,
-    "What to do during that run:\n" + Action.values().joinToString("\n") { it.id + " - " + it.description })
+    "What to do during that run:\n" + Action.values()
+        .joinToString("\n") { it.id + " - " + it.description })
 val h = Option("h", "help", false, "Prints this help")
-val threads = Option(null, "threads", true, "Amount of threads to use to upload files, by default $defaultThreadsCount")
 
 val options = Options().of(t, c, l, r, a, s, h)
 
 enum class Action(val id: String, val description: String) {
     RESTRUCTURE(
-        "restructure", "Restructure local files that correspond to remote files based on the remote " +
+        "restructure",
+        "Restructure local files that correspond to remote files based on the remote " +
                 "folder structure. The one that has no pair will remain untouched."
     ),
     UPLOAD(
@@ -43,6 +47,7 @@ enum class Action(val id: String, val description: String) {
     CLEAN_LOCAL("clean-local", "Clean cache: local files structure"),
     CLEAN_DBX("clean-dbx", "Clean cache: dropbox files structure"),
     CONFIG("config", "Store everything to config file to reuse it later"),
+    WHAT_TO_UPLOAD("what-to-upload", "Show stats on what to upload"),
 }
 
 fun main(args: Array<String>) {
@@ -72,39 +77,51 @@ fun main(args: Array<String>) {
     val localRootPath = (properties.getProperty("local-path") ?: cli.getRequired(l) { it })
         .let { File(it).absolutePath }
     val remoteRootPath = properties.getProperty("remote-path") ?: cli.getRequired(r) { it }
-    val skipList = (properties.getProperty("skip-list") ?: cli.get(s) { it })
-        ?.let { it.split(",").map { it.trim() }.toSet() }
-        ?: emptySet()
-    val action = cli.getRequired(a) { v -> Action.values().first { it.id == v } }
-    val threadsCount = cli.get(threads) { it.toInt() } ?: defaultThreadsCount
-
-    DropBoxWorker.create(clientIdentifier, accessToken, threadsCount).use { client ->
-        when (action) {
-            Action.RESTRUCTURE -> {
-                println("Restructuring local files to conform remote")
-                client.fetchDiff(localRootPath, remoteRootPath, skipList)
-                    .restructureLocal()
-            }
-            Action.UPLOAD -> {
-                println("Starting upload current structure into cloud")
-                client.fetchDiff(localRootPath, remoteRootPath, skipList)
-                    .uploadFiles()
-            }
-            Action.PREFETCH -> client.fetchDiff(localRootPath, remoteRootPath, skipList)
-            Action.CLEAN_LOCAL -> TODO()
-            Action.CLEAN_DBX -> TODO()
-            Action.CONFIG -> {
-                println("Storing values to config")
-                properties.setProperty("access-token", accessToken)
-                properties.setProperty("client-identifier", clientIdentifier)
-                properties.setProperty("local-path", localRootPath)
-                properties.setProperty("remote-path", remoteRootPath)
-                properties.setProperty("skip-list", skipList.joinToString(","))
-                properties.store(FileWriter(propertiesFile), "DropBox Push configuration file")
-            }
-        }
+    val skipList =
+        (properties.getProperty("skip-list") ?: cli.get(s) { it })
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.toSet()
+            ?: emptySet()
+    val action = cli.getRequired(a) { v ->
+        Action.values().firstOrNull { it.id == v }
+            ?: throw IllegalArgumentException("Action `$v` is not recognized")
     }
 
+
+    val client = DropBoxWorker.create(clientIdentifier, accessToken)
+
+    when (action) {
+        Action.RESTRUCTURE -> {
+            println("Restructuring local files to conform remote")
+            client.fetchDiff(localRootPath, remoteRootPath, skipList, refresh = false)
+                .restructureLocal()
+        }
+
+        Action.UPLOAD -> {
+            println("Starting upload current structure into cloud")
+            client.fetchDiff(localRootPath, remoteRootPath, skipList, refresh = false)
+                .uploadFiles(dryRun = false)
+        }
+
+        Action.WHAT_TO_UPLOAD -> {
+            client.fetchDiff(localRootPath, remoteRootPath, skipList, refresh = false)
+                .uploadFiles(dryRun = true)
+        }
+
+        Action.PREFETCH -> client.fetchDiff(localRootPath, remoteRootPath, skipList, refresh = true)
+        Action.CLEAN_LOCAL -> TODO()
+        Action.CLEAN_DBX -> TODO()
+        Action.CONFIG -> {
+            println("Storing values to config")
+            properties.setProperty("access-token", accessToken)
+            properties.setProperty("client-identifier", clientIdentifier)
+            properties.setProperty("local-path", localRootPath)
+            properties.setProperty("remote-path", remoteRootPath)
+            properties.setProperty("skip-list", skipList.joinToString(","))
+            properties.store(FileWriter(propertiesFile), "DropBox Push configuration file")
+        }
+    }
 }
 
 private fun printHelp() {

@@ -31,7 +31,8 @@ class Diff(
         private val localRootPath: String,
         private val remoteRootPath: String,
         private val dbxClient: DbxClientV2,
-        private val skipList: Set<String>
+        private val skipList: Set<String>,
+        private val refresh: Boolean
 ) {
 
     private val dbxDataFile = File(".dbxFiles")
@@ -125,7 +126,7 @@ class Diff(
         println("Reading local state...")
         val localFiles = ArrayList<LocalFile>()
 
-        if (!localDataFile.exists()) {
+        if (!localDataFile.exists() || refresh) {
             listAllFilesInDirectory(path, localFiles)
             ObjectOutputStream(FileOutputStream(localDataFile)).use { oos ->
                 localFiles.forEach {
@@ -154,7 +155,7 @@ class Diff(
         println("Reading DropBox state...")
         val dbxFiles = ArrayList<DbxFile>()
 
-        if (!dbxDataFile.exists()) {
+        if (!dbxDataFile.exists() || refresh) {
             listAllDbxFilesInFolder(client, path, dbxFiles)
             ObjectOutputStream(FileOutputStream(dbxDataFile)).use { oos ->
                 dbxFiles.forEach {
